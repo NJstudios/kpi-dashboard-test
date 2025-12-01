@@ -2,13 +2,24 @@
 
 import React, { useEffect, useState } from 'react';
 import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-  ColumnDef,
-} from '@tanstack/react-table';
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
-type Kpi = {
+type KPI = {
   date: string;
   mrr: number;
   dau: number;
@@ -16,86 +27,101 @@ type Kpi = {
   ltv: number;
 };
 
-export default function App() {
-  const [data, setData] = useState<Kpi[]>([]);
+const columnDescriptions: Record<keyof KPI | 'growth_mrr' | 'growth_dau', string> = {
+  date: 'Date of the recorded metrics.',
+  mrr: 'Monthly Recurring Revenue in USD.',
+  dau: 'Daily Active Users.',
+  churn: 'Percentage of users lost.',
+  ltv: 'Customer Lifetime Value.',
+  growth_mrr: 'MRR percentage change from previous entry.',
+  growth_dau: 'DAU percentage change from previous entry.',
+};
+
+function calculateGrowth(current: number, previous: number): string {
+  if (!previous || previous === 0) return '—';
+  const growth = ((current - previous) / previous) * 100;
+  return `${growth.toFixed(2)}%`;
+}
+
+export default function DashboardPage() {
+  const [data, setData] = useState<(KPI & { growth_mrr?: string; growth_dau?: string })[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const res = await fetch('http://localhost:8000/kpis');
-        const json = await res.json();
-        setData(json);
-      } catch (err) {
-        console.error('Failed to fetch data:', err);
-      }
-    };
+      const res = await fetch('http://localhost:8000/kpis');
+      const raw: KPI[] = await res.json();
 
+      const enriched = raw.map((d, i) => ({
+        ...d,
+        growth_mrr: i === 0 ? '—' : calculateGrowth(d.mrr, raw[i - 1].mrr),
+        growth_dau: i === 0 ? '—' : calculateGrowth(d.dau, raw[i - 1].dau),
+      }));
+
+      setData(enriched.reverse()); // Most recent first
+    };
     fetchData();
   }, []);
 
-  const columns: ColumnDef<Kpi>[] = [
-    {
-      accessorKey: 'date',
-      header: 'Date',
-    },
-    {
-      accessorKey: 'mrr',
-      header: 'MRR ($)',
-    },
-    {
-      accessorKey: 'dau',
-      header: 'DAU',
-    },
-    {
-      accessorKey: 'churn',
-      header: 'Churn Rate',
-      cell: ({ getValue }) => `${(getValue<number>() * 100).toFixed(2)}%`,
-    },
-    {
-      accessorKey: 'ltv',
-      header: 'LTV ($)',
-    },
-  ];
-
-  const table = useReactTable({
-    data,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
   return (
-    <main className="p-6 text-black">
-      <h1 className="text-2xl font-bold mb-4">KPI Dashboard</h1>
-      <table className="w-full border border-gray-300">
-        <thead className="bg-gray-100">
-          {table.getHeaderGroups().map(headerGroup => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map(header => (
-                <th
-                  key={header.id}
-                  className="border px-4 py-2 text-left text-gray-700"
-                >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
+    <main className="p-6 space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl">KPI Table</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader className="bg-gradient-to-r from-slate-100 to-slate-300">
+              <TableRow>
+                {['date', 'mrr', 'growth_mrr', 'dau', 'growth_dau', 'churn', 'ltv'].map((key) => (
+                  <TableHead key={key} className="capitalize text-sm font-semibold">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" className="text-xs font-bold">
+                          {key.replace('_', ' ')}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 text-sm">{columnDescriptions[key as keyof typeof columnDescriptions]}</PopoverContent>
+                    </Popover>
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((entry, i) => (
+                <TableRow key={i} className="hover:bg-muted/50 transition-all">
+                  <TableCell>{entry.date}</TableCell>
+                  <TableCell>${entry.mrr.toLocaleString()}</TableCell>
+                  <TableCell>{entry.growth_mrr}</TableCell>
+                  <TableCell>{entry.dau.toLocaleString()}</TableCell>
+                  <TableCell>{entry.growth_dau}</TableCell>
+                  <TableCell>{(entry.churn * 100).toFixed(2)}%</TableCell>
+                  <TableCell>${entry.ltv.toFixed(2)}</TableCell>
+                </TableRow>
               ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map(row => (
-            <tr key={row.id} className="hover:bg-gray-50">
-              {row.getVisibleCells().map(cell => (
-                <td
-                  key={cell.id}
-                  className="border px-4 py-2 text-gray-900"
-                >
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <CardHeader>
+          <CardTitle className="text-2xl">KPI Trends</CardTitle>
+        </CardHeader>
+        <CardContent className="h-[400px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data}>
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="mrr" stroke="#2563eb" name="MRR" />
+              <Line type="monotone" dataKey="dau" stroke="#059669" name="DAU" />
+              <Line type="monotone" dataKey="ltv" stroke="#d97706" name="LTV" />
+              <Line type="monotone" dataKey="churn" stroke="#ef4444" name="Churn" />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
     </main>
   );
 }
